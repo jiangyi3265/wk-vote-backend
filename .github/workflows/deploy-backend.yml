@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 env:
-  SERVER_HOST: ${{ secrets.SERVER_HOST || '101.42.94.41' }}
-  SERVER_USER: ${{ secrets.SERVER_USER || 'root' }}
+  SERVER_HOST: 101.42.94.41
+  SERVER_USER: root
   APP_DIR: /opt/wk-vote/backend
   SERVICE_NAME: wk-vote-backend
 
