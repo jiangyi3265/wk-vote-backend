@@ -39,12 +39,14 @@ jobs:
           mkdir -p deploy
           cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
 
-      - name: Publish artifact release
+      - name: Upload artifact
         env:
-          GH_TOKEN: ${{ github.token }}
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         run: |
-          gh release delete "deploy-$GITHUB_SHA" --cleanup-tag -y || true
-          gh release create "deploy-$GITHUB_SHA" deploy/app.jar --title "deploy-$GITHUB_SHA" --notes "Backend artifact for $GITHUB_SHA"
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          sshpass -p "$SERVER_PASSWORD" ssh -o StrictHostKeyChecking=no "$SERVER_USER@$SERVER_HOST" "mkdir -p '$APP_DIR/releases/$GITHUB_SHA'"
+          timeout 25m sshpass -p "$SERVER_PASSWORD" scp -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=10 deploy/app.jar "$SERVER_USER@$SERVER_HOST:$APP_DIR/releases/$GITHUB_SHA/app.jar"
 
       - name: Activate release
         uses: appleboy/ssh-action@v1.0.3
@@ -52,14 +54,12 @@ jobs:
           host: ${{ env.SERVER_HOST }}
           username: ${{ env.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          command_timeout: 30m
           script: |
             set -e
             APP_DIR="${{ env.APP_DIR }}"
             SERVICE_NAME="${{ env.SERVICE_NAME }}"
 
             mkdir -p "$APP_DIR/releases/${{ github.sha }}" "$APP_DIR/logs" "$APP_DIR/config"
-            curl -fL --retry 5 --retry-delay 5 --connect-timeout 30 --max-time 1800 --progress-bar -o "$APP_DIR/releases/${{ github.sha }}/app.jar" "https://github.com/${{ github.repository }}/releases/download/deploy-${{ github.sha }}/app.jar"
             ln -sfn "$APP_DIR/releases/${{ github.sha }}/app.jar" "$APP_DIR/app.jar"
 
             if [ ! -f "$APP_DIR/config/application-prod.yml" ]; then
