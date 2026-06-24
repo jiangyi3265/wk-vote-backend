@@ -1,0 +1,105 @@
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+env:
+  SERVER_HOST: ${{ secrets.SERVER_HOST || '101.42.94.41' }}
+  SERVER_USER: ${{ secrets.SERVER_USER || 'root' }}
+  APP_DIR: /opt/wk-vote/backend
+  SERVICE_NAME: wk-vote-backend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Build jar
+        run: mvn -B -DskipTests clean package -pl ruoyi-admin -am
+
+      - name: Prepare artifact
+        run: |
+          mkdir -p deploy
+          cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
+
+      - name: Upload artifact
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          source: deploy/app.jar
+          target: ${{ env.APP_DIR }}/releases/${{ github.sha }}
+          strip_components: 1
+
+      - name: Activate release
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ env.SERVER_HOST }}
+          username: ${{ env.SERVER_USER }}
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: |
+            set -e
+            APP_DIR="${{ env.APP_DIR }}"
+            SERVICE_NAME="${{ env.SERVICE_NAME }}"
+
+            mkdir -p "$APP_DIR/releases" "$APP_DIR/logs" "$APP_DIR/config"
+            ln -sfn "$APP_DIR/releases/${{ github.sha }}/app.jar" "$APP_DIR/app.jar"
+
+            if [ ! -f "$APP_DIR/config/application-prod.yml" ]; then
+              cat > "$APP_DIR/config/application-prod.yml" <<'EOF'
+            ruoyi:
+              profile: /opt/wk-vote/backend/uploadPath
+            server:
+              port: 8080
+            spring:
+              redis:
+                host: 127.0.0.1
+                port: 6379
+                database: 0
+                password:
+              datasource:
+                druid:
+                  master:
+                    url: jdbc:mysql://127.0.0.1:3306/ha?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&serverTimezone=GMT%2B8
+                    username: root
+                    password: 123456
+            EOF
+            fi
+
+            cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+            [Unit]
+            Description=WK Vote RuoYi Backend
+            After=network.target
+
+            [Service]
+            Type=simple
+            WorkingDirectory=${APP_DIR}
+            ExecStart=/usr/bin/java -jar ${APP_DIR}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${APP_DIR}/config/
+            Restart=always
+            RestartSec=5
+            StandardOutput=append:${APP_DIR}/logs/app.log
+            StandardError=append:${APP_DIR}/logs/error.log
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
+
+            systemctl daemon-reload
+            systemctl enable "$SERVICE_NAME"
+            systemctl restart "$SERVICE_NAME"
+            systemctl --no-pager --full status "$SERVICE_NAME"

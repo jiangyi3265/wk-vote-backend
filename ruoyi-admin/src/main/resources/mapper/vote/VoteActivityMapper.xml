@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.vote.mapper.VoteActivityMapper">
+
+    <resultMap type="VoteActivity" id="VoteActivityResult">
+        <id     property="activityId"      column="activity_id"      />
+        <result property="title"           column="title"            />
+        <result property="description"     column="description"      />
+        <result property="cover"           column="cover"            />
+        <result property="votesPerPerson"  column="votes_per_person" />
+        <result property="multiPerPair"    column="multi_per_pair"   />
+        <result property="requireName"     column="require_name"     />
+        <result property="status"          column="status"           />
+        <result property="startTime"       column="start_time"       />
+        <result property="endTime"         column="end_time"         />
+        <result property="delFlag"         column="del_flag"         />
+        <result property="createBy"        column="create_by"        />
+        <result property="createTime"      column="create_time"      />
+        <result property="updateBy"        column="update_by"        />
+        <result property="updateTime"      column="update_time"      />
+        <result property="remark"          column="remark"           />
+    </resultMap>
+
+    <sql id="selectVoteActivityVo">
+        select activity_id, title, description, cover, votes_per_person, multi_per_pair, require_name,
+               status, start_time, end_time, del_flag, create_by, create_time, update_by, update_time, remark
+        from vote_activity
+    </sql>
+
+    <select id="selectVoteActivityList" parameterType="VoteActivity" resultMap="VoteActivityResult">
+        <include refid="selectVoteActivityVo"/>
+        <where>
+            del_flag = '0'
+            <if test="title != null and title != ''"> and title like concat('%', #{title}, '%')</if>
+            <if test="status != null and status != ''"> and status = #{status}</if>
+        </where>
+        order by activity_id desc
+    </select>
+
+    <select id="selectVoteActivityById" parameterType="Long" resultMap="VoteActivityResult">
+        <include refid="selectVoteActivityVo"/>
+        where activity_id = #{activityId} and del_flag = '0'
+    </select>
+
+    <insert id="insertVoteActivity" parameterType="VoteActivity" useGeneratedKeys="true" keyProperty="activityId">
+        insert into vote_activity (
+            title, description, cover, votes_per_person, multi_per_pair, require_name,
+            status, start_time, end_time, create_by, create_time, remark
+        ) values (
+            #{title}, #{description}, #{cover}, #{votesPerPerson}, #{multiPerPair}, #{requireName},
+            #{status}, #{startTime}, #{endTime}, #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateVoteActivity" parameterType="VoteActivity">
+        update vote_activity
+        <set>
+            <if test="title != null">title = #{title},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="cover != null">cover = #{cover},</if>
+            <if test="votesPerPerson != null">votes_per_person = #{votesPerPerson},</if>
+            <if test="multiPerPair != null">multi_per_pair = #{multiPerPair},</if>
+            <if test="requireName != null">require_name = #{requireName},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="startTime != null">start_time = #{startTime},</if>
+            <if test="endTime != null">end_time = #{endTime},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = sysdate()
+        </set>
+        where activity_id = #{activityId}
+    </update>
+
+    <update id="deleteVoteActivityById" parameterType="Long">
+        update vote_activity set del_flag = '2' where activity_id = #{activityId}
+    </update>
+
+    <update id="deleteVoteActivityByIds" parameterType="Long">
+        update vote_activity set del_flag = '2' where activity_id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+</mapper>

@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.vote.mapper.VoteOptionMapper">
+
+    <resultMap type="VoteOption" id="VoteOptionResult">
+        <id     property="optionId"    column="option_id"   />
+        <result property="activityId"  column="activity_id" />
+        <result property="name"        column="name"        />
+        <result property="icon"        column="icon"        />
+        <result property="color"       column="color"       />
+        <result property="sort"        column="sort"        />
+        <result property="status"      column="status"      />
+        <result property="createBy"    column="create_by"   />
+        <result property="createTime"  column="create_time" />
+        <result property="updateBy"    column="update_by"   />
+        <result property="updateTime"  column="update_time" />
+        <result property="remark"      column="remark"      />
+    </resultMap>
+
+    <sql id="selectVoteOptionVo">
+        select option_id, activity_id, name, icon, color, sort, status,
+               create_by, create_time, update_by, update_time, remark
+        from vote_option
+    </sql>
+
+    <select id="selectVoteOptionList" parameterType="VoteOption" resultMap="VoteOptionResult">
+        <include refid="selectVoteOptionVo"/>
+        <where>
+            <if test="activityId != null"> and activity_id = #{activityId}</if>
+            <if test="name != null and name != ''"> and name like concat('%', #{name}, '%')</if>
+            <if test="status != null and status != ''"> and status = #{status}</if>
+        </where>
+        order by sort asc, option_id asc
+    </select>
+
+    <select id="selectVoteOptionById" parameterType="Long" resultMap="VoteOptionResult">
+        <include refid="selectVoteOptionVo"/>
+        where option_id = #{optionId}
+    </select>
+
+    <insert id="insertVoteOption" parameterType="VoteOption" useGeneratedKeys="true" keyProperty="optionId">
+        insert into vote_option (
+            activity_id, name, icon, color, sort, status, create_by, create_time, remark
+        ) values (
+            #{activityId}, #{name}, #{icon}, #{color}, #{sort}, #{status}, #{createBy}, sysdate(), #{remark}
+        )
+    </insert>
+
+    <update id="updateVoteOption" parameterType="VoteOption">
+        update vote_option
+        <set>
+            <if test="activityId != null">activity_id = #{activityId},</if>
+            <if test="name != null">name = #{name},</if>
+            <if test="icon != null">icon = #{icon},</if>
+            <if test="color != null">color = #{color},</if>
+            <if test="sort != null">sort = #{sort},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="updateBy != null">update_by = #{updateBy},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = sysdate()
+        </set>
+        where option_id = #{optionId}
+    </update>
+
+    <delete id="deleteVoteOptionById" parameterType="Long">
+        delete from vote_option where option_id = #{optionId}
+    </delete>
+
+    <delete id="deleteVoteOptionByIds" parameterType="Long">
+        delete from vote_option where option_id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <delete id="deleteVoteOptionByActivityId" parameterType="Long">
+        delete from vote_option where activity_id = #{activityId}
+    </delete>
+
+</mapper>

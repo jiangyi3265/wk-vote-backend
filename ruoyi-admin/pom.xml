@@ -49,17 +49,17 @@
             <artifactId>ruoyi-framework</artifactId>
         </dependency>
 
-        <!-- 定时任务-->
-        <dependency>
+        <!-- 定时任务(已移除) -->
+        <!-- <dependency>
             <groupId>com.ruoyi</groupId>
             <artifactId>ruoyi-quartz</artifactId>
-        </dependency>
+        </dependency> -->
 
-        <!-- 代码生成-->
-        <dependency>
+        <!-- 代码生成(已移除) -->
+        <!-- <dependency>
             <groupId>com.ruoyi</groupId>
             <artifactId>ruoyi-generator</artifactId>
-        </dependency>
+        </dependency> -->
 
     </dependencies>
 

@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.ruoyi.vote.mapper.VoteRecordMapper">
+
+    <resultMap type="VoteRecord" id="VoteRecordResult">
+        <id     property="recordId"      column="record_id"     />
+        <result property="activityId"    column="activity_id"   />
+        <result property="voterId"       column="voter_id"      />
+        <result property="candidateId"   column="candidate_id"  />
+        <result property="optionId"      column="option_id"     />
+        <result property="createTime"    column="create_time"   />
+        <result property="voterName"     column="voter_name"    />
+        <result property="candidateName" column="candidate_name"/>
+        <result property="optionName"    column="option_name"   />
+    </resultMap>
+
+    <select id="selectVoteRecordList" parameterType="VoteRecord" resultMap="VoteRecordResult">
+        select r.record_id, r.activity_id, r.voter_id, r.candidate_id, r.option_id, r.create_time,
+               v.voter_name, c.name as candidate_name, o.name as option_name
+        from vote_record r
+        left join vote_voter v on r.voter_id = v.voter_id
+        left join vote_candidate c on r.candidate_id = c.candidate_id
+        left join vote_option o on r.option_id = o.option_id
+        <where>
+            <if test="activityId != null"> and r.activity_id = #{activityId}</if>
+            <if test="candidateId != null"> and r.candidate_id = #{candidateId}</if>
+            <if test="optionId != null"> and r.option_id = #{optionId}</if>
+            <if test="voterName != null and voterName != ''"> and v.voter_name like concat('%', #{voterName}, '%')</if>
+        </where>
+        order by r.record_id desc
+    </select>
+
+    <insert id="insertVoteRecord" parameterType="VoteRecord" useGeneratedKeys="true" keyProperty="recordId">
+        insert into vote_record (activity_id, voter_id, candidate_id, option_id, create_time)
+        values (#{activityId}, #{voterId}, #{candidateId}, #{optionId}, sysdate())
+    </insert>
+
+    <insert id="batchInsertVoteRecord" parameterType="java.util.List">
+        insert into vote_record (activity_id, voter_id, candidate_id, option_id, create_time) values
+        <foreach collection="list" item="item" separator=",">
+            (#{item.activityId}, #{item.voterId}, #{item.candidateId}, #{item.optionId}, sysdate())
+        </foreach>
+    </insert>
+
+    <delete id="deleteVoteRecordByIds" parameterType="Long">
+        delete from vote_record where record_id in
+        <foreach item="id" collection="array" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <delete id="deleteVoteRecordByActivityId" parameterType="Long">
+        delete from vote_record where activity_id = #{activityId}
+    </delete>
+
+    <select id="selectTally" parameterType="Long" resultType="com.ruoyi.vote.domain.dto.VoteTally">
+        select candidate_id as candidateId, option_id as optionId, count(1) as votes
+        from vote_record
+        where activity_id = #{activityId}
+        group by candidate_id, option_id
+    </select>
+
+    <select id="countByActivityId" parameterType="Long" resultType="int">
+        select count(1) from vote_record where activity_id = #{activityId}
+    </select>
+
+</mapper>
