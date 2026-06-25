@@ -62,12 +62,11 @@ jobs:
             mkdir -p "$APP_DIR/releases/${{ github.sha }}" "$APP_DIR/logs" "$APP_DIR/config"
             ln -sfn "$APP_DIR/releases/${{ github.sha }}/app.jar" "$APP_DIR/app.jar"
 
-            if [ ! -f "$APP_DIR/config/application-prod.yml" ]; then
-              cat > "$APP_DIR/config/application-prod.yml" <<'EOF'
+            cat > "$APP_DIR/config/application-prod.yml" <<'EOF'
             ruoyi:
               profile: /opt/wk-vote/backend/uploadPath
             server:
-              port: 8080
+              port: 18080
             spring:
               redis:
                 host: 127.0.0.1
@@ -81,7 +80,6 @@ jobs:
                     username: root
                     password: 123456
             EOF
-            fi
 
             cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
             [Unit]
@@ -91,7 +89,7 @@ jobs:
             [Service]
             Type=simple
             WorkingDirectory=${APP_DIR}
-            ExecStart=/usr/bin/java -jar ${APP_DIR}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${APP_DIR}/config/
+            ExecStart=/usr/bin/java -jar ${APP_DIR}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${APP_DIR}/config/ --server.port=18080
             Restart=always
             RestartSec=5
             StandardOutput=append:${APP_DIR}/logs/app.log
