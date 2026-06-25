@@ -35,12 +35,21 @@ jobs:
             DB_USERNAME="${{ secrets.DB_USERNAME }}"
             DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
 
+            retry() {
+              for i in 1 2 3 4 5; do
+                "$@" && return 0
+                echo "retry $i: $*"
+                sleep 5
+              done
+              return 1
+            }
+
             if [ ! -d "$SOURCE_DIR/.git" ]; then
               rm -rf "$SOURCE_DIR"
-              git clone "$REPO_URL" "$SOURCE_DIR"
+              retry git clone "$REPO_URL" "$SOURCE_DIR"
             fi
             cd "$SOURCE_DIR"
-            git fetch origin
+            retry git fetch origin
             git checkout --force "${{ github.sha }}"
             mvn -B -DskipTests clean package -pl ruoyi-admin -am
 
