@@ -148,8 +148,8 @@ public class VotePublicServiceImpl implements IVotePublicService
                 .map(VoteCandidate::getCandidateId).collect(Collectors.toSet());
         Set<Long> validOptions = activeOptions(activity.getActivityId()).stream()
                 .map(VoteOption::getOptionId).collect(Collectors.toSet());
-        boolean allowRepeat = "1".equals(activity.getMultiPerPair());
         Set<String> seenPairs = new HashSet<>();
+        Set<Long> seenOptions = new HashSet<>();
         for (VoteBallot b : ballots)
         {
             if (b.getCandidateId() == null || b.getOptionId() == null
@@ -159,9 +159,13 @@ public class VotePublicServiceImpl implements IVotePublicService
                 throw new ServiceException("选票数据有误，请刷新页面后重试");
             }
             String key = b.getCandidateId() + "_" + b.getOptionId();
-            if (!allowRepeat && !seenPairs.add(key))
+            if (!seenPairs.add(key))
             {
-                throw new ServiceException("同一候选人的同一维度不能重复投票");
+                throw new ServiceException("同一候选人的同一项目不能重复投票");
+            }
+            if (!seenOptions.add(b.getOptionId()))
+            {
+                throw new ServiceException("同一个项目只能选择一位候选人");
             }
         }
 
