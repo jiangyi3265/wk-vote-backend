@@ -7,49 +7,19 @@ on:
       - master
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 env:
   SERVER_HOST: 101.42.94.41
   SERVER_USER: root
   APP_DIR: /opt/wk-vote/backend
   SERVICE_NAME: wk-vote-backend
+  REPO_URL: https://github.com/jiangyi3265/wk-vote-backend.git
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-          cache: maven
-
-      - name: Build jar
-        run: mvn -B -DskipTests clean package -pl ruoyi-admin -am
-
-      - name: Prepare artifact
-        run: |
-          mkdir -p deploy
-          cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
-
-      - name: Upload artifact
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SERVER_HOST }}
-          username: ${{ env.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          source: deploy/app.jar
-          target: ${{ env.APP_DIR }}/releases/${{ github.sha }}
-          strip_components: 1
-
-      - name: Activate release
+      - name: Build and activate release
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SERVER_HOST }}
@@ -59,11 +29,24 @@ jobs:
             set -e
             APP_DIR="${{ env.APP_DIR }}"
             SERVICE_NAME="${{ env.SERVICE_NAME }}"
+            REPO_URL="${{ env.REPO_URL }}"
+            SOURCE_DIR="$APP_DIR/source"
+            RELEASE_DIR="$APP_DIR/releases/${{ github.sha }}"
             DB_USERNAME="${{ secrets.DB_USERNAME }}"
             DB_PASSWORD="${{ secrets.DB_PASSWORD }}"
 
-            mkdir -p "$APP_DIR/releases/${{ github.sha }}" "$APP_DIR/logs" "$APP_DIR/config"
-            ln -sfn "$APP_DIR/releases/${{ github.sha }}/app.jar" "$APP_DIR/app.jar"
+            if [ ! -d "$SOURCE_DIR/.git" ]; then
+              rm -rf "$SOURCE_DIR"
+              git clone "$REPO_URL" "$SOURCE_DIR"
+            fi
+            cd "$SOURCE_DIR"
+            git fetch origin
+            git checkout --force "${{ github.sha }}"
+            mvn -B -DskipTests clean package -pl ruoyi-admin -am
+
+            mkdir -p "$RELEASE_DIR" "$APP_DIR/logs" "$APP_DIR/config"
+            cp "$SOURCE_DIR/ruoyi-admin/target/ruoyi-admin.jar" "$RELEASE_DIR/app.jar"
+            ln -sfn "$RELEASE_DIR/app.jar" "$APP_DIR/app.jar"
 
             cat > "$APP_DIR/config/application-prod.yml" <<EOF
             ruoyi:
