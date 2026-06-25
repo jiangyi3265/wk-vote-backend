@@ -4,7 +4,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +60,15 @@ public class VotePublicServiceImpl implements IVotePublicService
         return all.stream()
                 .filter(a -> "1".equals(a.getStatus()) || "2".equals(a.getStatus()))
                 .filter(a -> !activeCandidates(a.getActivityId()).isEmpty() && !activeOptions(a.getActivityId()).isEmpty())
+                .map(this::singleVoteActivity)
                 .collect(Collectors.toList());
+    }
+
+    private VoteActivity singleVoteActivity(VoteActivity activity)
+    {
+        activity.setVotesPerPerson(1);
+        activity.setMultiPerPair("0");
+        return activity;
     }
 
     private List<VoteCandidate> activeCandidates(Long activityId)
@@ -88,6 +95,7 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("活动不存在或已被删除");
         }
+        singleVoteActivity(activity);
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("activity", activity);
         data.put("candidates", activeCandidates(activityId));
@@ -128,10 +136,9 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("请至少投出一票");
         }
-        int max = activity.getVotesPerPerson() == null ? 8 : activity.getVotesPerPerson();
-        if (ballots.size() > max)
+        if (ballots.size() != 1)
         {
-            throw new ServiceException("最多只能投 " + max + " 票");
+            throw new ServiceException("8个选项只能选一项，每人只能投一票");
         }
         if ("1".equals(activity.getRequireName()) && StringUtils.isBlank(body.getVoterName()))
         {
@@ -149,8 +156,6 @@ public class VotePublicServiceImpl implements IVotePublicService
                 .map(VoteCandidate::getCandidateId).collect(Collectors.toSet());
         Set<Long> validOptions = activeOptions(activity.getActivityId()).stream()
                 .map(VoteOption::getOptionId).collect(Collectors.toSet());
-        Set<String> seenPairs = new HashSet<>();
-        Set<Long> seenOptions = new HashSet<>();
         for (VoteBallot b : ballots)
         {
             if (b.getCandidateId() == null || b.getOptionId() == null
@@ -158,15 +163,6 @@ public class VotePublicServiceImpl implements IVotePublicService
                     || !validOptions.contains(b.getOptionId()))
             {
                 throw new ServiceException("选票数据有误，请刷新页面后重试");
-            }
-            String key = b.getCandidateId() + "_" + b.getOptionId();
-            if (!seenPairs.add(key))
-            {
-                throw new ServiceException("同一候选人的同一项目不能重复投票");
-            }
-            if (!seenOptions.add(b.getOptionId()))
-            {
-                throw new ServiceException("同一个项目只能选择一位候选人");
             }
         }
 
@@ -207,6 +203,7 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("活动不存在或已被删除");
         }
+        singleVoteActivity(activity);
         List<VoteCandidate> candidates = activeCandidates(activityId);
         List<VoteOption> options = activeOptions(activityId);
         List<VoteTally> tally = voteRecordMapper.selectTally(activityId);
