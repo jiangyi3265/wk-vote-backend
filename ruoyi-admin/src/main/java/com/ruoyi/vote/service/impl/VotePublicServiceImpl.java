@@ -60,6 +60,7 @@ public class VotePublicServiceImpl implements IVotePublicService
         // 仅展示进行中(1) / 已结束(2)
         return all.stream()
                 .filter(a -> "1".equals(a.getStatus()) || "2".equals(a.getStatus()))
+                .filter(a -> !activeCandidates(a.getActivityId()).isEmpty() && !activeOptions(a.getActivityId()).isEmpty())
                 .collect(Collectors.toList());
     }
 
