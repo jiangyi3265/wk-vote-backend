@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -37,6 +38,8 @@ import com.ruoyi.vote.service.IVotePublicService;
 @Service
 public class VotePublicServiceImpl implements IVotePublicService
 {
+    private static final int REQUIRED_VOTES = 8;
+
     @Autowired
     private VoteActivityMapper voteActivityMapper;
 
@@ -59,14 +62,15 @@ public class VotePublicServiceImpl implements IVotePublicService
         // 仅展示进行中(1) / 已结束(2)
         return all.stream()
                 .filter(a -> "1".equals(a.getStatus()) || "2".equals(a.getStatus()))
-                .filter(a -> !activeCandidates(a.getActivityId()).isEmpty() && !activeOptions(a.getActivityId()).isEmpty())
-                .map(this::singleVoteActivity)
+                .filter(a -> activeCandidates(a.getActivityId()).size() >= REQUIRED_VOTES
+                        && activeOptions(a.getActivityId()).size() >= REQUIRED_VOTES)
+                .map(this::normalizeActivity)
                 .collect(Collectors.toList());
     }
 
-    private VoteActivity singleVoteActivity(VoteActivity activity)
+    private VoteActivity normalizeActivity(VoteActivity activity)
     {
-        activity.setVotesPerPerson(1);
+        activity.setVotesPerPerson(REQUIRED_VOTES);
         activity.setMultiPerPair("0");
         return activity;
     }
@@ -95,11 +99,17 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("活动不存在或已被删除");
         }
-        singleVoteActivity(activity);
+        normalizeActivity(activity);
+        List<VoteCandidate> candidates = activeCandidates(activityId);
+        List<VoteOption> options = activeOptions(activityId);
+        if (candidates.size() < REQUIRED_VOTES || options.size() < REQUIRED_VOTES)
+        {
+            throw new ServiceException("当前活动候选人或投票类型不足，无法投票");
+        }
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("activity", activity);
-        data.put("candidates", activeCandidates(activityId));
-        data.put("options", activeOptions(activityId));
+        data.put("candidates", candidates);
+        data.put("options", options);
         data.put("voterCount", voteVoterMapper.countByActivityId(activityId));
         return data;
     }
@@ -136,10 +146,6 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("请至少投出一票");
         }
-        if (ballots.size() != 1)
-        {
-            throw new ServiceException("8个选项只能选一项，每人只能投一票");
-        }
         if ("1".equals(activity.getRequireName()) && StringUtils.isBlank(body.getVoterName()))
         {
             throw new ServiceException("请填写您的姓名后再投票");
@@ -151,11 +157,21 @@ public class VotePublicServiceImpl implements IVotePublicService
             throw new ServiceException("您已经参与过本次投票啦~");
         }
 
-        // 校验候选人/维度合法性
-        Set<Long> validCandidates = activeCandidates(activity.getActivityId()).stream()
-                .map(VoteCandidate::getCandidateId).collect(Collectors.toSet());
-        Set<Long> validOptions = activeOptions(activity.getActivityId()).stream()
-                .map(VoteOption::getOptionId).collect(Collectors.toSet());
+        // 校验候选人/维度合法性：8张票、8个类型、8个不同候选人
+        List<VoteCandidate> candidates = activeCandidates(activity.getActivityId());
+        List<VoteOption> options = activeOptions(activity.getActivityId());
+        if (candidates.size() < REQUIRED_VOTES || options.size() < REQUIRED_VOTES)
+        {
+            throw new ServiceException("当前活动候选人或投票类型不足，无法投票");
+        }
+        if (ballots.size() != REQUIRED_VOTES)
+        {
+            throw new ServiceException("请投满8张票，并投给8个不同的人");
+        }
+        Set<Long> validCandidates = candidates.stream().map(VoteCandidate::getCandidateId).collect(Collectors.toSet());
+        Set<Long> validOptions = options.stream().map(VoteOption::getOptionId).collect(Collectors.toSet());
+        Set<Long> usedCandidates = new HashSet<>();
+        Set<Long> usedOptions = new HashSet<>();
         for (VoteBallot b : ballots)
         {
             if (b.getCandidateId() == null || b.getOptionId() == null
@@ -163,6 +179,14 @@ public class VotePublicServiceImpl implements IVotePublicService
                     || !validOptions.contains(b.getOptionId()))
             {
                 throw new ServiceException("选票数据有误，请刷新页面后重试");
+            }
+            if (!usedOptions.add(b.getOptionId()))
+            {
+                throw new ServiceException("每种投票类型只能投一次");
+            }
+            if (!usedCandidates.add(b.getCandidateId()))
+            {
+                throw new ServiceException("8张票必须投给8个不同的人");
             }
         }
 
@@ -203,7 +227,7 @@ public class VotePublicServiceImpl implements IVotePublicService
         {
             throw new ServiceException("活动不存在或已被删除");
         }
-        singleVoteActivity(activity);
+        normalizeActivity(activity);
         List<VoteCandidate> candidates = activeCandidates(activityId);
         List<VoteOption> options = activeOptions(activityId);
         List<VoteTally> tally = voteRecordMapper.selectTally(activityId);
