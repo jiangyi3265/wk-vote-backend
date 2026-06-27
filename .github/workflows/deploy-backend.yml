@@ -86,7 +86,7 @@ jobs:
           EOF
 
       - name: Upload backend files
-        timeout-minutes: 30
+        timeout-minutes: 90
         env:
           SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
         run: |
@@ -94,6 +94,7 @@ jobs:
           sudo apt-get install -y sshpass rsync
           export SSHPASS="$SERVER_PASSWORD"
           RELEASE_DIR="${APP_DIR}/releases/${GITHUB_SHA}"
+          UPLOAD_DIR="${APP_DIR}/upload"
           SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
           REMOTE="${SERVER_USER}@${SERVER_HOST}"
 
@@ -107,10 +108,13 @@ jobs:
               fi
             fi
             command -v rsync >/dev/null 2>&1
-            mkdir -p '$RELEASE_DIR' '${APP_DIR}/logs' '${APP_DIR}/config' '${APP_DIR}/uploadPath'
+            mkdir -p '$RELEASE_DIR' '$UPLOAD_DIR' '${APP_DIR}/logs' '${APP_DIR}/config' '${APP_DIR}/uploadPath'
+            if [ ! -f '$UPLOAD_DIR/app.jar' ] && [ -f '${APP_DIR}/app.jar' ]; then
+              cp -L '${APP_DIR}/app.jar' '$UPLOAD_DIR/app.jar'
+            fi
           "
 
-          sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/app.jar "$REMOTE:$RELEASE_DIR/app.jar"
+          sshpass -e rsync -avz --partial --inplace --no-whole-file --progress -e "ssh $SSH_OPTS" deploy/app.jar "$REMOTE:$UPLOAD_DIR/app.jar"
           sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/application-prod.yml "$REMOTE:${APP_DIR}/config/application-prod.yml"
           sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/wk-vote-backend.service "$REMOTE:/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -127,6 +131,8 @@ jobs:
             SERVICE_NAME="${{ env.SERVICE_NAME }}"
             RELEASE_DIR="$APP_DIR/releases/${{ github.sha }}"
 
+            mkdir -p "$RELEASE_DIR"
+            cp "$APP_DIR/upload/app.jar" "$RELEASE_DIR/app.jar"
             ln -sfn "$RELEASE_DIR/app.jar" "$APP_DIR/app.jar"
             systemctl daemon-reload
             systemctl enable "$SERVICE_NAME"
