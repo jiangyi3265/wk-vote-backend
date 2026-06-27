@@ -16,6 +16,7 @@ env:
   SERVER_USER: ${{ secrets.SERVER_USER || 'root' }}
   APP_DIR: /opt/wk-vote/backend
   SERVICE_NAME: wk-vote-backend
+  REPO_URL: https://github.com/jiangyi3265/wk-vote-backend.git
 
 jobs:
   deploy:
@@ -32,73 +33,7 @@ jobs:
           test -n "$DB_USERNAME" || (echo "Missing secret: DB_USERNAME" && exit 1)
           test -n "$DB_PASSWORD" || (echo "Missing secret: DB_PASSWORD" && exit 1)
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
-
-      - name: Build backend
-        run: mvn -B -DskipTests clean package -pl ruoyi-admin -am
-
-      - name: Prepare deploy archive
-        run: |
-          mkdir -p deploy
-          cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
-          cat > deploy/application-prod.yml <<'EOF'
-          ruoyi:
-            profile: /opt/wk-vote/backend/uploadPath
-          server:
-            port: 18080
-          spring:
-            redis:
-              host: 127.0.0.1
-              port: 6379
-              database: 0
-              password:
-            datasource:
-              druid:
-                master:
-                  url: jdbc:mysql://127.0.0.1:3306/ha?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
-                  username: ${{ secrets.DB_USERNAME }}
-                  password: ${{ secrets.DB_PASSWORD }}
-          EOF
-          cat > deploy/wk-vote-backend.service <<EOF
-          [Unit]
-          Description=WK Vote RuoYi Backend
-          After=network.target
-
-          [Service]
-          Type=simple
-          WorkingDirectory=${{ env.APP_DIR }}
-          ExecStart=/usr/bin/java -jar ${{ env.APP_DIR }}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${{ env.APP_DIR }}/config/ --server.port=18080
-          Restart=always
-          RestartSec=5
-          StandardOutput=append:${{ env.APP_DIR }}/logs/app.log
-          StandardError=append:${{ env.APP_DIR }}/logs/error.log
-
-          [Install]
-          WantedBy=multi-user.target
-          EOF
-          tar -czf backend-release.tar.gz -C deploy app.jar application-prod.yml wk-vote-backend.service
-
-      - name: Upload backend archive
-        env:
-          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y sshpass
-          export SSHPASS="$SERVER_PASSWORD"
-          TMP_DIR="/tmp/wk-vote-backend-${{ github.sha }}"
-          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-          sshpass -e ssh $SSH_OPTS "${SERVER_USER}@${SERVER_HOST}" "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
-          sshpass -e scp $SSH_OPTS backend-release.tar.gz "${SERVER_USER}@${SERVER_HOST}:${TMP_DIR}/release.tar.gz"
-
-      - name: Activate backend release
+      - name: Build and activate release
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SERVER_HOST }}
@@ -108,18 +43,71 @@ jobs:
             set -e
             APP_DIR="${{ env.APP_DIR }}"
             SERVICE_NAME="${{ env.SERVICE_NAME }}"
-            TMP_DIR="/tmp/wk-vote-backend-${{ github.sha }}"
+            REPO_URL="${{ env.REPO_URL }}"
+            SOURCE_DIR="$APP_DIR/source"
             RELEASE_DIR="$APP_DIR/releases/${{ github.sha }}"
 
+            retry() {
+              for i in 1 2 3 4 5; do
+                "$@" && return 0
+                echo "retry $i: $*"
+                sleep 5
+              done
+              return 1
+            }
+
+            if [ ! -d "$SOURCE_DIR/.git" ]; then
+              rm -rf "$SOURCE_DIR"
+              retry git clone "$REPO_URL" "$SOURCE_DIR"
+            fi
+
+            cd "$SOURCE_DIR"
+            retry git fetch origin
+            git checkout --force "${{ github.sha }}"
+            mvn -B -DskipTests clean package -pl ruoyi-admin -am
+
             mkdir -p "$RELEASE_DIR" "$APP_DIR/logs" "$APP_DIR/config" "$APP_DIR/uploadPath"
-            tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
-            install -m 755 "$TMP_DIR/app.jar" "$RELEASE_DIR/app.jar"
-            install -m 600 "$TMP_DIR/application-prod.yml" "$APP_DIR/config/application-prod.yml"
-            install -m 644 "$TMP_DIR/wk-vote-backend.service" "/etc/systemd/system/${SERVICE_NAME}.service"
+            cp "$SOURCE_DIR/ruoyi-admin/target/ruoyi-admin.jar" "$RELEASE_DIR/app.jar"
             ln -sfn "$RELEASE_DIR/app.jar" "$APP_DIR/app.jar"
+
+            cat > "$APP_DIR/config/application-prod.yml" <<'EOF'
+            ruoyi:
+              profile: /opt/wk-vote/backend/uploadPath
+            server:
+              port: 18080
+            spring:
+              redis:
+                host: 127.0.0.1
+                port: 6379
+                database: 0
+                password:
+              datasource:
+                druid:
+                  master:
+                    url: jdbc:mysql://127.0.0.1:3306/ha?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
+                    username: ${{ secrets.DB_USERNAME }}
+                    password: ${{ secrets.DB_PASSWORD }}
+            EOF
+
+            cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
+            [Unit]
+            Description=WK Vote RuoYi Backend
+            After=network.target
+
+            [Service]
+            Type=simple
+            WorkingDirectory=${APP_DIR}
+            ExecStart=/usr/bin/java -jar ${APP_DIR}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${APP_DIR}/config/ --server.port=18080
+            Restart=always
+            RestartSec=5
+            StandardOutput=append:${APP_DIR}/logs/app.log
+            StandardError=append:${APP_DIR}/logs/error.log
+
+            [Install]
+            WantedBy=multi-user.target
+            EOF
 
             systemctl daemon-reload
             systemctl enable "$SERVICE_NAME"
             systemctl restart "$SERVICE_NAME"
             systemctl --no-pager --full status "$SERVICE_NAME"
-            rm -rf "$TMP_DIR"
