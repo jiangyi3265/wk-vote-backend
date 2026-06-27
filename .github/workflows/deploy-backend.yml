@@ -45,7 +45,7 @@ jobs:
       - name: Build backend
         run: mvn -B -DskipTests clean package -pl ruoyi-admin -am
 
-      - name: Prepare deploy files
+      - name: Prepare deploy archive
         run: |
           mkdir -p deploy
           cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
@@ -84,16 +84,19 @@ jobs:
           [Install]
           WantedBy=multi-user.target
           EOF
+          tar -czf backend-release.tar.gz -C deploy app.jar application-prod.yml wk-vote-backend.service
 
-      - name: Upload backend files
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ env.SERVER_HOST }}
-          username: ${{ env.SERVER_USER }}
-          password: ${{ secrets.SERVER_PASSWORD }}
-          source: deploy/*
-          target: /tmp/wk-vote-backend-${{ github.sha }}
-          strip_components: 1
+      - name: Upload backend archive
+        env:
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          export SSHPASS="$SERVER_PASSWORD"
+          TMP_DIR="/tmp/wk-vote-backend-${{ github.sha }}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          sshpass -e ssh $SSH_OPTS "${SERVER_USER}@${SERVER_HOST}" "rm -rf '${TMP_DIR}' && mkdir -p '${TMP_DIR}'"
+          sshpass -e scp $SSH_OPTS backend-release.tar.gz "${SERVER_USER}@${SERVER_HOST}:${TMP_DIR}/release.tar.gz"
 
       - name: Activate backend release
         uses: appleboy/ssh-action@v1.0.3
@@ -109,6 +112,7 @@ jobs:
             RELEASE_DIR="$APP_DIR/releases/${{ github.sha }}"
 
             mkdir -p "$RELEASE_DIR" "$APP_DIR/logs" "$APP_DIR/config" "$APP_DIR/uploadPath"
+            tar -xzf "$TMP_DIR/release.tar.gz" -C "$TMP_DIR"
             install -m 755 "$TMP_DIR/app.jar" "$RELEASE_DIR/app.jar"
             install -m 600 "$TMP_DIR/application-prod.yml" "$APP_DIR/config/application-prod.yml"
             install -m 644 "$TMP_DIR/wk-vote-backend.service" "/etc/systemd/system/${SERVICE_NAME}.service"
