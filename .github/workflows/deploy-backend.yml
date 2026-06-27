@@ -39,6 +39,7 @@ jobs:
           host: ${{ env.SERVER_HOST }}
           username: ${{ env.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
+          command_timeout: 10m
           script: |
             set -e
             APP_DIR="${{ env.APP_DIR }}"
@@ -57,15 +58,19 @@ jobs:
             }
 
             if [ ! -d "$SOURCE_DIR/.git" ]; then
+              echo "Cloning backend repository..."
               rm -rf "$SOURCE_DIR"
               retry git clone "$REPO_URL" "$SOURCE_DIR"
             fi
 
             cd "$SOURCE_DIR"
+            echo "Fetching latest code..."
             retry git fetch origin
             git checkout --force "${{ github.sha }}"
-            mvn -B -DskipTests clean package -pl ruoyi-admin -am
+            echo "Building backend on server..."
+            timeout 8m mvn -B -DskipTests clean package -pl ruoyi-admin -am
 
+            echo "Activating release..."
             mkdir -p "$RELEASE_DIR" "$APP_DIR/logs" "$APP_DIR/config" "$APP_DIR/uploadPath"
             cp "$SOURCE_DIR/ruoyi-admin/target/ruoyi-admin.jar" "$RELEASE_DIR/app.jar"
             ln -sfn "$RELEASE_DIR/app.jar" "$APP_DIR/app.jar"
@@ -110,4 +115,5 @@ jobs:
             systemctl daemon-reload
             systemctl enable "$SERVICE_NAME"
             systemctl restart "$SERVICE_NAME"
-            systemctl --no-pager --full status "$SERVICE_NAME"
+            systemctl is-active --quiet "$SERVICE_NAME" || (journalctl -u "$SERVICE_NAME" -n 80 --no-pager && exit 1)
+            echo "Backend service is active."
