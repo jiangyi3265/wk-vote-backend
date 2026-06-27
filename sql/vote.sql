@@ -107,7 +107,7 @@ CREATE TABLE vote_record (
 -- 演示数据：活动
 -- ----------------------------
 INSERT INTO vote_activity (activity_id, title, description, votes_per_person, multi_per_pair, require_name, status, start_time, end_time, create_by, create_time, remark)
-VALUES (100, '校园之星·最帅最美评选大赛', '每人 8 张点赞票，可投给心仪的同学，最终评选出最帅、最美、最有才……的校园之星！', 8, '0', '1', '1', '2026-01-01 00:00:00', '2026-12-31 23:59:59', 'admin', NOW(), '系统内置演示活动');
+VALUES (100, '以“情”连线，点赞身边人', '每人 8 张点赞票，可投给身边值得点赞的同学，最终汇聚温暖、有爱、闪光的身边人！', 8, '0', '1', '1', '2026-01-01 00:00:00', '2026-12-31 23:59:59', 'admin', NOW(), '系统内置演示活动');
 
 -- ----------------------------
 -- 演示数据：评选维度
