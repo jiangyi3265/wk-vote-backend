@@ -16,7 +16,6 @@ env:
   SERVER_USER: ${{ secrets.SERVER_USER || 'root' }}
   APP_DIR: /opt/wk-vote/backend
   SERVICE_NAME: wk-vote-backend
-  REPO_URL: https://github.com/jiangyi3265/wk-vote-backend.git
 
 jobs:
   deploy:
@@ -33,85 +32,102 @@ jobs:
           test -n "$DB_USERNAME" || (echo "Missing secret: DB_USERNAME" && exit 1)
           test -n "$DB_PASSWORD" || (echo "Missing secret: DB_PASSWORD" && exit 1)
 
-      - name: Build and activate release
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+
+      - name: Build backend
+        run: mvn -B -DskipTests clean package -pl ruoyi-admin -am
+
+      - name: Prepare deploy files
+        run: |
+          mkdir -p deploy
+          cp ruoyi-admin/target/ruoyi-admin.jar deploy/app.jar
+          cat > deploy/application-prod.yml <<'EOF'
+          ruoyi:
+            profile: /opt/wk-vote/backend/uploadPath
+          server:
+            port: 18080
+          spring:
+            redis:
+              host: 127.0.0.1
+              port: 6379
+              database: 0
+              password:
+            datasource:
+              druid:
+                master:
+                  url: jdbc:mysql://127.0.0.1:3306/ha?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
+                  username: ${{ secrets.DB_USERNAME }}
+                  password: ${{ secrets.DB_PASSWORD }}
+          EOF
+          cat > deploy/wk-vote-backend.service <<EOF
+          [Unit]
+          Description=WK Vote RuoYi Backend
+          After=network.target
+
+          [Service]
+          Type=simple
+          WorkingDirectory=${{ env.APP_DIR }}
+          ExecStart=/usr/bin/java -jar ${{ env.APP_DIR }}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${{ env.APP_DIR }}/config/ --server.port=18080
+          Restart=always
+          RestartSec=5
+          StandardOutput=append:${{ env.APP_DIR }}/logs/app.log
+          StandardError=append:${{ env.APP_DIR }}/logs/error.log
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+      - name: Upload backend files
+        timeout-minutes: 30
+        env:
+          SERVER_PASSWORD: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass rsync
+          export SSHPASS="$SERVER_PASSWORD"
+          RELEASE_DIR="${APP_DIR}/releases/${GITHUB_SHA}"
+          SSH_OPTS="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          REMOTE="${SERVER_USER}@${SERVER_HOST}"
+
+          sshpass -e ssh $SSH_OPTS "$REMOTE" "
+            set -e
+            if ! command -v rsync >/dev/null 2>&1; then
+              if command -v apt-get >/dev/null 2>&1; then
+                apt-get update && apt-get install -y rsync
+              elif command -v yum >/dev/null 2>&1; then
+                yum install -y rsync
+              fi
+            fi
+            command -v rsync >/dev/null 2>&1
+            mkdir -p '$RELEASE_DIR' '${APP_DIR}/logs' '${APP_DIR}/config' '${APP_DIR}/uploadPath'
+          "
+
+          sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/app.jar "$REMOTE:$RELEASE_DIR/app.jar"
+          sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/application-prod.yml "$REMOTE:${APP_DIR}/config/application-prod.yml"
+          sshpass -e rsync -avz --partial --progress -e "ssh $SSH_OPTS" deploy/wk-vote-backend.service "$REMOTE:/etc/systemd/system/${SERVICE_NAME}.service"
+
+      - name: Activate backend release
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ env.SERVER_HOST }}
           username: ${{ env.SERVER_USER }}
           password: ${{ secrets.SERVER_PASSWORD }}
-          command_timeout: 10m
+          command_timeout: 3m
           script: |
             set -e
             APP_DIR="${{ env.APP_DIR }}"
             SERVICE_NAME="${{ env.SERVICE_NAME }}"
-            REPO_URL="${{ env.REPO_URL }}"
-            SOURCE_DIR="$APP_DIR/source"
             RELEASE_DIR="$APP_DIR/releases/${{ github.sha }}"
 
-            retry() {
-              for i in 1 2 3 4 5; do
-                "$@" && return 0
-                echo "retry $i: $*"
-                sleep 5
-              done
-              return 1
-            }
-
-            if [ ! -d "$SOURCE_DIR/.git" ]; then
-              echo "Cloning backend repository..."
-              rm -rf "$SOURCE_DIR"
-              retry git clone "$REPO_URL" "$SOURCE_DIR"
-            fi
-
-            cd "$SOURCE_DIR"
-            echo "Fetching latest code..."
-            retry git fetch origin
-            git checkout --force "${{ github.sha }}"
-            echo "Building backend on server..."
-            timeout 8m mvn -B -DskipTests clean package -pl ruoyi-admin -am
-
-            echo "Activating release..."
-            mkdir -p "$RELEASE_DIR" "$APP_DIR/logs" "$APP_DIR/config" "$APP_DIR/uploadPath"
-            cp "$SOURCE_DIR/ruoyi-admin/target/ruoyi-admin.jar" "$RELEASE_DIR/app.jar"
             ln -sfn "$RELEASE_DIR/app.jar" "$APP_DIR/app.jar"
-
-            cat > "$APP_DIR/config/application-prod.yml" <<'EOF'
-            ruoyi:
-              profile: /opt/wk-vote/backend/uploadPath
-            server:
-              port: 18080
-            spring:
-              redis:
-                host: 127.0.0.1
-                port: 6379
-                database: 0
-                password:
-              datasource:
-                druid:
-                  master:
-                    url: jdbc:mysql://127.0.0.1:3306/ha?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=GMT%2B8
-                    username: ${{ secrets.DB_USERNAME }}
-                    password: ${{ secrets.DB_PASSWORD }}
-            EOF
-
-            cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
-            [Unit]
-            Description=WK Vote RuoYi Backend
-            After=network.target
-
-            [Service]
-            Type=simple
-            WorkingDirectory=${APP_DIR}
-            ExecStart=/usr/bin/java -jar ${APP_DIR}/app.jar --spring.profiles.active=druid,prod --spring.config.additional-location=file:${APP_DIR}/config/ --server.port=18080
-            Restart=always
-            RestartSec=5
-            StandardOutput=append:${APP_DIR}/logs/app.log
-            StandardError=append:${APP_DIR}/logs/error.log
-
-            [Install]
-            WantedBy=multi-user.target
-            EOF
-
             systemctl daemon-reload
             systemctl enable "$SERVICE_NAME"
             systemctl restart "$SERVICE_NAME"
